@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ちゃまーマップ</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+    <style>
+        body { margin: 0; padding: 20px; font-family: sans-serif; background-color: #f7f9fa; }
+        h1 { font-size: 1.5rem; margin-bottom: 15px; }
+        .form-container { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .form-group { margin-bottom: 10px; }
+        .form-group label { display: block; font-weight: bold; font-size: 0.9rem; margin-bottom: 5px; }
+        .form-group input, .form-group select { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        .btn-submit { background-color: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; width: 100%; font-weight: bold; }
+        .btn-submit:hover { background-color: #218838; }
+        #map { width: 100%; height: 500px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+
+    <h1>📍 ちゃまーマップ</h1>
+
+    <div class="form-container">
+        <div class="form-group">
+            <label for="name">名前</label>
+            <input type="text" id="name" placeholder="例：Aくん">
+        </div>
+        <div class="form-group">
+            <label for="type">分類</label>
+            <select id="type">
+                <option value="自宅">自宅</option>
+                <option value="勤務地">勤務地</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="lat">緯度</label>
+            <input type="number" id="lat" step="any" placeholder="例：35.4658">
+        </div>
+        <div class="form-group">
+            <label for="lng">経度</label>
+            <input type="number" id="lng" step="any" placeholder="例：139.6223">
+        </div>
+        <div class="form-group">
+            <label for="note">メモ</label>
+            <input type="text" id="note" placeholder="例：みなとみらい勤務">
+        </div>
+        <button class="btn-submit" id="add-btn">クラウドに保存して地図に追加</button>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+    <script>
+        // 1. 地図の初期設定
+    const myMap = L.map('map').setView([35.4500, 139.6300], 12);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(myMap);
+
+    // ピンアイコンの設定
+    const BaseIcon = L.Icon.extend({
+        options: {
+            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+            iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+        }
+    });
+    const homeIcon = new BaseIcon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png'});
+    const workIcon = new BaseIcon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png'});
+
+    // 2. Firebaseの接続設定
+    const firebaseConfig = {
+        databaseURL: "https://chamermap-default-rtdb.firebaseio.com/" // ⚠️あなたのURLに書き換えてください
+    };
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database().ref('markers');
+
+    // ★追加したピンを管理するための「空のオブジェクト（箱）」を用意する
+    const visibleMarkers = {};
+
+    // 3. データ保存の処理（ボタンを押したとき）
+    document.getElementById('add-btn').addEventListener('click', function() {
+        const inputName = document.getElementById('name').value;
+        const inputType = document.getElementById('type').value;
+        const inputLat = parseFloat(document.getElementById('lat').value);
+        const inputLng = parseFloat(document.getElementById('lng').value);
+        const inputNote = document.getElementById('note').value;
+
+        if (!inputName || isNaN(inputLat) || isNaN(inputLng)) {
+            alert('名前、緯度、経度は必須です！');
+            return;
+        }
+
+        database.push({
+            name: inputName,
+            type: inputType,
+            lat: inputLat,
+            lng: inputLng,
+            note: inputNote
+        });
+
+        document.getElementById('name').value = '';
+        document.getElementById('lat').value = '';
+        document.getElementById('lng').value = '';
+        document.getElementById('note').value = '';
+    });
+
+    // ==========================================
+    // 4. データの受信処理（ピンを立てる）
+    // ==========================================
+    database.on('child_added', function(snapshot) {
+        const key = snapshot.key; // ★Firebaseがデータごとにつけてくれる「固有のID」を取得
+        const friend = snapshot.val();
+
+        let chosenIcon = homeIcon;
+        if (friend.type === "勤務地") {
+            chosenIcon = workIcon;
+        }
+
+        // 地図にピンを立てる
+        const newMarker = L.marker([friend.lat, friend.lng], { icon: chosenIcon }).addTo(myMap);
+        
+        // ★後から消せるように、ID(key)とピン(newMarker)をセットにして箱に保存しておく
+        visibleMarkers[key] = newMarker;
+        
+        // ★ポップアップの中に「削除」ボタンを仕込む（onclickで削除関数を呼ぶ）
+        const popupContent = `
+            <strong>${friend.name}</strong><br>
+            <span style="background: #eee; padding: 2px 5px; border-radius: 4px; font-size: 0.8em;">${friend.type}</span><br>
+            ${friend.note}<br><br>
+            <button onclick="deleteMarker('${key}')" style="background-color: #dc3545; color: white; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">削除する</button>
+        `;
+        newMarker.bindPopup(popupContent);
+    });
+
+    // ==========================================
+    // ★5. クラウド側でデータが消されたときの処理（リアルタイム削除）
+    // ==========================================
+    // 誰かが削除ボタンを押してクラウドのデータが消えると、全員の画面でこれが動きます
+    database.on('child_removed', function(snapshot) {
+        const key = snapshot.key; // 消されたデータのID
+        
+        // もしそのIDのピンが地図上にあれば、地図から削除する
+        if (visibleMarkers[key]) {
+            myMap.removeLayer(visibleMarkers[key]); // 地図から消す
+            delete visibleMarkers[key];            // 管理用の箱からも消す
+        }
+    });
+
+    // ==========================================
+    // ★6. 削除ボタンが押されたときに実行される関数
+    // ==========================================
+    function deleteMarker(key) {
+        if (confirm('本当にこのピンを削除しますか？')) {
+            // FirebaseからそのIDのデータを削除する（これだけでchild_removedがトリガーされる）
+            database.child(key).remove();
+        }
+    }
+    </script>
+
+</body>
+</html>
