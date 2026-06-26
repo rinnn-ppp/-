@@ -30,6 +30,21 @@
 </head>
 <body>
 
+    <script>
+        // 友達に教えるパスワードを設定（例として chamer0555 にしています）
+        const PAGE_PASSWORD = "chamer0555"; 
+        
+        // ブラウザの入力ポップアップを出す
+        const userInput = prompt("パスワードを入力してください：");
+        
+        // もし入力された文字が違っていたら、画面を真っ白にしてストップさせる
+        if (userInput !== PAGE_PASSWORD) {
+            alert("パスワードが違います。アクセスできません。");
+            document.body.innerHTML = "<h1>🔒 アクセス拒否</h1><p>正しいパスワードを入力してページをリロードしてください。</p>";
+            window.stop(); // これ以降のHTMLやJavaScriptの読み込みを完全にストップする
+        }
+    </script>
+
     <h1>📍 ちゃまーマップ</h1>
 
     <div class="form-container">
@@ -72,14 +87,12 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 
     <script>
-        // 地図の初期設定
         const myMap = L.map('map').setView([35.4500, 139.6300], 12);
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap contributors'
         }).addTo(myMap);
 
-        // ピンアイコンの設定
         const BaseIcon = L.Icon.extend({
             options: {
                 shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
@@ -89,7 +102,6 @@
         const homeIcon = new BaseIcon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png'});
         const workIcon = new BaseIcon({iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png'});
 
-        // Firebaseの接続設定
         const firebaseConfig = {
             databaseURL: "https://chamermap-default-rtdb.firebaseio.com/"
         };
@@ -127,7 +139,7 @@
             document.getElementById('note').value = '';
         });
 
-        // 4. データの受信処理（ピンを立てる ＋ テキスト一覧に追加する）
+        // データの受信処理
         database.on('child_added', function(snapshot) {
             const key = snapshot.key; 
             const friend = snapshot.val();
@@ -139,7 +151,7 @@
                 badgeClass = 'badge-work';
             }
 
-            // ① 地図にピンを立てる（前のまま）
+            // ① 地図にピンを立てる
             const newMarker = L.marker([friend.lat, friend.lng], { icon: chosenIcon }).addTo(myMap);
             visibleMarkers[key] = newMarker;
             
@@ -151,7 +163,7 @@
             `;
             newMarker.bindPopup(popupContent);
 
-            // ② 地図の下のリストにテキストを追加する（★ここを書き換え！）
+            // ② 地図の下のリストにテキストを追加する
             const listContainer = document.getElementById('marker-list');
             const li = document.createElement('li');
             li.className = 'marker-item';
