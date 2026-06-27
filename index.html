@@ -18,7 +18,6 @@
         .btn-submit:hover { background-color: #218838; }
         #map { width: 100%; height: 500px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
         
-        /* リストエリアのスタイル */
         .list-container { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .list-container h2 { font-size: 1.2rem; margin-top: 0; margin-bottom: 10px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
         .marker-list { list-style: none; padding: 0; margin: 0; }
@@ -31,17 +30,12 @@
 <body>
 
     <script>
-        // 友達に教えるパスワードを設定（例として chamer0555 にしています）
         const PAGE_PASSWORD = "chamer0555"; 
-        
-        // ブラウザの入力ポップアップを出す
         const userInput = prompt("パスワードを入力してください：");
-        
-        // もし入力された文字が違っていたら、画面を真っ白にしてストップさせる
         if (userInput !== PAGE_PASSWORD) {
             alert("パスワードが違います。アクセスできません。");
             document.body.innerHTML = "<h1>🔒 アクセス拒否</h1><p>正しいパスワードを入力してページをリロードしてください。</p>";
-            window.stop(); // これ以降のHTMLやJavaScriptの読み込みを完全にストップする
+            window.stop(); 
         }
     </script>
 
@@ -60,12 +54,8 @@
             </select>
         </div>
         <div class="form-group">
-            <label for="lat">緯度</label>
-            <input type="number" id="lat" step="any" placeholder="例：35.4658">
-        </div>
-        <div class="form-group">
-            <label for="lng">経度</label>
-            <input type="number" id="lng" step="any" placeholder="例：139.6223">
+            <label for="address">住所 または 駅名</label>
+            <input type="text" id="address" placeholder="例：横浜駅、東京都渋谷区宇田川町1-1など">
         </div>
         <div class="form-group">
             <label for="note">メモ</label>
@@ -77,9 +67,8 @@
     <div id="map"></div>
 
     <div class="list-container">
-        <h2>📋 登録メンバー・場所一覧</h2>
-        <ul id="marker-list" class="marker-list">
-            </ul>
+        <h2>📋 登録場所一覧</h2>
+        <ul id="marker-list" class="marker-list"></ul>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -108,38 +97,57 @@
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database().ref('markers');
 
-        // 管理用の箱
         const visibleMarkers = {};
         const visibleListItems = {}; 
 
-        // データ保存の処理
+        // ★3. データ保存の処理（ボタンを押したとき、自動で住所を変換する）
         document.getElementById('add-btn').addEventListener('click', function() {
             const inputName = document.getElementById('name').value;
             const inputType = document.getElementById('type').value;
-            const inputLat = parseFloat(document.getElementById('lat').value);
-            const inputLng = parseFloat(document.getElementById('lng').value);
+            const inputAddress = document.getElementById('address').value; // 住所の文字を取得
             const inputNote = document.getElementById('note').value;
 
-            if (!inputName || isNaN(inputLat) || isNaN(inputLng)) {
-                alert('名前、緯度、経度は必須です！');
+            if (!inputName || !inputAddress) {
+                alert('名前と住所（駅名）は必須です！');
                 return;
             }
 
-            database.push({
-                name: inputName,
-                type: inputType,
-                lat: inputLat,
-                lng: inputLng,
-                note: inputNote
-            });
+            // 【超重要】無料のジオコーディングAPIを使って、住所を緯度経度に一瞬で変換する
+            const searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(inputAddress)}&countrycodes=jp`;
 
-            document.getElementById('name').value = '';
-            document.getElementById('lat').value = '';
-            document.getElementById('lng').value = '';
-            document.getElementById('note').value = '';
+            fetch(searchUrl)
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.length > 0) {
+                        // 検索結果の一番上（一番正確と思われる場所）の数値を読み取る
+                        const lat = parseFloat(data[0].lat);
+                        const lng = parseFloat(data[0].lon);
+
+                        // 緯度経度が無事に見つかったら、Firebaseに送信！
+                        database.push({
+                            name: inputName,
+                            type: inputType,
+                            lat: lat,
+                            lng: lng,
+                            note: inputNote,
+                            addressText: inputAddress // 登録した住所の名前もメモとして保存
+                        });
+
+                        // 入力欄をクリア
+                        document.getElementById('name').value = '';
+                        document.getElementById('address').value = '';
+                        document.getElementById('note').value = '';
+                    } else {
+                        alert('住所や駅名が見つかりませんでした。もう少し正確に入力してみてください。');
+                    }
+                })
+                .catch(error => {
+                    console.error('エラー:', error);
+                    alert('検索中にエラーが発生しました。時間をおいて試してください。');
+                });
         });
 
-        // データの受信処理
+        // 4. データの受信処理
         database.on('child_added', function(snapshot) {
             const key = snapshot.key; 
             const friend = snapshot.val();
@@ -151,19 +159,19 @@
                 badgeClass = 'badge-work';
             }
 
-            // ① 地図にピンを立てる
             const newMarker = L.marker([friend.lat, friend.lng], { icon: chosenIcon }).addTo(myMap);
             visibleMarkers[key] = newMarker;
             
             const popupContent = `
                 <strong>${friend.name}</strong><br>
                 <span style="background: #eee; padding: 2px 5px; border-radius: 4px; font-size: 0.8em;">${friend.type}</span><br>
-                ${friend.note}<br><br>
+                位置: ${friend.addressText || '不明'}<br>
+                メモ: ${friend.note || 'なし'}<br><br>
                 <button onclick="deleteMarker('${key}')" style="background-color: #dc3545; color: white; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">削除する</button>
             `;
             newMarker.bindPopup(popupContent);
 
-            // ② 地図の下のリストにテキストを追加する
+            // リスト表示
             const listContainer = document.getElementById('marker-list');
             const li = document.createElement('li');
             li.className = 'marker-item';
@@ -171,32 +179,29 @@
                 <div>
                     <strong>${friend.name}</strong> 
                     <span class="${badgeClass}">${friend.type}</span> — 
+                    <span>📍${friend.addressText || '位置情報'}</span> | 
                     <span>${friend.note || 'メモなし'}</span>
-                    <span style="color: #888; font-size: 0.85em; margin-left: 10px;">(緯度:${friend.lat}, 経度:${friend.lng})</span>
                 </div>
                 <button onclick="deleteMarker('${key}')" style="background-color: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8em;">削除</button>
             `;
             listContainer.appendChild(li);
-            
             visibleListItems[key] = li;
         });
 
-        // クラウド側でデータが消されたときの処理
+        // 5. クラウド側でデータが消されたときの処理
         database.on('child_removed', function(snapshot) {
             const key = snapshot.key; 
-            
             if (visibleMarkers[key]) {
                 myMap.removeLayer(visibleMarkers[key]); 
                 delete visibleMarkers[key];            
             }
-            
             if (visibleListItems[key]) {
                 visibleListItems[key].remove();
                 delete visibleListItems[key];
             }
         });
 
-        // 削除ボタンが押されたときに実行される関数
+        // 6. 削除ボタンの関数
         window.deleteMarker = function(key) {
             if (confirm('本当にこのピンを削除しますか？')) {
                 database.child(key).remove();
